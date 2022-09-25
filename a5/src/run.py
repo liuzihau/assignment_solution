@@ -55,9 +55,13 @@ Don't change above here; write your code below
 """
 
 if args.variant == 'vanilla':
-    pass # TODO [part c]: Make some model here
+    # TODO [part c]: Make some model here
+    model = model.GPT(mconf)
 elif args.variant == 'synthesizer':
-    pass # TODO [part g]: Make some other model here
+    # TODO [part g]: Make some other model here
+    mconf = model.GPTConfig(pretrain_dataset.vocab_size, pretrain_dataset.block_size,
+    n_layer=4, n_head=8, n_embd=256, additive = True)
+    model = model.GPT(mconf)
 
 # From here on, your code should be identical independent of which
 # variant (vanilla or synthesizer) has been chosen.
@@ -80,7 +84,19 @@ if args.function == 'pretrain':
     #     warmup_tokens=512*20
     #     final_tokens=200*len(pretrain_dataset)*block_size
     #     num_workers=4
-    raise NotImplementedError
+    tconf = trainer.TrainerConfig(
+        max_epochs=650,
+        batch_size=128,
+        learning_rate=6e-3,
+        lr_decay=True,
+        warmup_tokens=512*20,
+        final_tokens=200*len(pretrain_dataset)*block_size,
+        num_workers=0,
+        ckpt_path=args.writing_params_path
+    )
+    trainer = trainer.Trainer(model, pretrain_dataset, None, tconf)
+    trainer.train()
+    # raise NotImplementedError
 elif args.function == 'finetune':
     assert args.writing_params_path is not None
     assert args.finetune_corpus_path is not None
@@ -112,12 +128,41 @@ elif args.function == 'finetune':
     #         warmup_tokens=512*20
     #         final_tokens=200*len(pretrain_dataset)*block_size
     #         num_workers=4
-    raise NotImplementedError
+    if args.reading_params_path:
+        model.load_state_dict(torch.load(args.reading_params_path))
+        model.to(device)
+        tconf = trainer.TrainerConfig(
+            max_epochs=10,
+            batch_size=256,
+            learning_rate=6e-4,
+            lr_decay=True,
+            warmup_tokens=512*20,
+            final_tokens=200*len(pretrain_dataset)*block_size,
+            num_workers=0,
+            ckpt_path=args.writing_params_path
+        )
+    else:
+        tconf = trainer.TrainerConfig(
+            max_epochs=75,
+            batch_size=256,
+            learning_rate=6e-4,
+            lr_decay=True,
+            warmup_tokens=512 * 20,
+            final_tokens=200 * len(pretrain_dataset) * block_size,
+            num_workers=0,
+            ckpt_path=args.writing_params_path
+        )
+    finetune_data = open(args.finetune_corpus_path, 'r', encoding='utf-8').read()
+    train_dataset = dataset.NameDataset(pretrain_dataset,finetune_data)
+    trainer = trainer.Trainer(model, train_dataset, None, tconf)
+    trainer.train()
+    # raise NotImplementedError
 elif args.function == 'evaluate':
     assert args.outputs_path is not None
     assert args.reading_params_path is not None
     assert args.eval_corpus_path is not None
     model.load_state_dict(torch.load(args.reading_params_path))
+    model.to(device)
     correct = 0
     total = 0
     with open(args.outputs_path, 'w') as fout:
